@@ -1,0 +1,66 @@
+---
+- name: Генерация нагрузки и анализ трафика приложения на порту 5000
+  hosts: all
+  become: yes
+  vars:
+    capture_file: "/tmp/traffic_app5000_{{ inventory_hostname }}.pcap"
+    capture_duration: 40  
+    logs_dir: "/tmp/logs"
+    ab_requests: 1000
+    ab_concurrency: 10
+    server_ip: "{{ hostvars[groups['server_group'][0]].inventory_hostname }}"
+
+  tasks:
+    - name: Install dependency
+      apt:
+        name:
+          - tcpdump
+          - apache2-utils
+        state: present
+
+    - name: Stop tcpdump (если есть)
+      shell: "pkill -f 'tcpdump -i any port 5000' || true"
+      ignore_errors: yes
+
+    - name: create dir
+      file:
+        path: "/tmp"
+        state: directory
+        mode: '0755'
+
+    - name: Запустить захват трафика на 5000 порту
+      shell: "timeout {{ capture_duration }} tcpdump -i any port 5000 -w {{ capture_file }}"
+      async: "{{ capture_duration + 10 }}"
+      poll: 0
+      register: tcpdump_job
+
+    - name: Подождать несколько секунд перед генерацией нагрузки
+      pause:
+        seconds: 3
+
+    - name: Генерировать нагрузку на сервер с клиентов (Apache )
+      shell: "ab -n {{ ab_requests }} -c {{ ab_concurrency }} http://{{ server_ip }}:5000/"
+      when: inventory_hostname in groups['client_group']
+
+    - name: Проверить, что файл создан
+      stat:
+        path: "{{ capture_file }}"
+      register: dump_stat
+
+    - name: Скачать лог на управляющую машину
+      fetch:
+        src: "{{ capture_file }}"
+        dest: "{{ logs_dir }}/"
+        flat: yes
+      when: dump_stat.stat.exists
+
+    - name: Удалить лог с узла
+      file:
+        path: "{{ capture_file }}"
+        state: absent
+      when: dump_stat.stat.exists
+
+    - name: Показать путь к логу
+      debug:
+        msg: "Файл с трафиком: {{ logs_dir }}/traffic_app5000_{{ inventory_hostname }}.pcap"
+      when: dump_stat.stat.exists

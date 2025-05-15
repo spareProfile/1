@@ -1,0 +1,102 @@
+- name: Установить tcpdump
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install tcpdump
+      apt:
+        name: tcpdump
+        state: present
+
+- name: Запустить tcpdump в фоновом режиме
+  hosts: all
+  become: yes
+  tasks:
+    - name: Start tcpdump in background
+      shell: nohup tcpdump -i any -w /tmp/traffic_capture.pcap > /dev/null 2>&1 &
+      args:
+        executable: /bin/bash
+
+- name: Создать директорию /testdir с правами на чтение/запись для всех
+  hosts: all
+  become: yes
+  tasks:
+    - name: Создать директорию /testdir с правами на чтение/запись для всех
+      file:
+        path: /testdir
+        state: directory
+        mode: '0777'
+
+- name: Отправить запросы
+  hosts: client_group
+  tasks:
+    - name: Send HTTP requests to server using curl
+      shell: curl http://{{ groups['server_group'][0] }} || true
+      register: curl_result
+
+- name: Покидать файлы между серверами
+  hosts: client_group
+  tasks:
+    - name: Create test file
+      copy:
+        dest: /testdir/testfile.txt
+        content: "Test file from {{ inventory_hostname }}"
+
+    - name: Скопировать файл на сервер
+      shell: scp -o StrictHostKeyChecking=no /testdir/testfile.txt ub5@{{ groups['server_group'][0] }}:/testdir/testfile_{{ inventory_hostname }}.txt
+      delegate_to: "{{ inventory_hostname }}"
+      ignore_errors: yes
+
+- name: Покидать несколько файлов между серверами
+  hosts: client_group
+  tasks:
+    - name: Create test file 1
+      copy:
+        dest: /testdir/testfile1.txt
+        content: "Test file 1 from {{ inventory_hostname }}"
+    - name: Create test file 2
+      copy:
+        dest: /testdir/testfile2.txt
+        content: "Test file 2 from {{ inventory_hostname }}"
+    - name: Create test file 3
+      copy:
+        dest: /testdir/testfile3.txt
+        content: "Test file 3 from {{ inventory_hostname }}"
+
+    - name: Copy testfile1.txt to server
+      shell: scp -o StrictHostKeyChecking=no /testdir/testfile1.txt ub5@{{ groups['server_group'][0] }}:/testdir/testfile1_{{ inventory_hostname }}.txt
+      delegate_to: "{{ inventory_hostname }}"
+      ignore_errors: yes
+
+    - name: Copy testfile2.txt to server
+      shell: scp -o StrictHostKeyChecking=no /testdir/testfile2.txt ub5@{{ groups['server_group'][0] }}:/testdir/testfile2_{{ inventory_hostname }}.txt
+      delegate_to: "{{ inventory_hostname }}"
+      ignore_errors: yes
+
+    - name: Copy testfile3.txt to server
+      shell: scp -o StrictHostKeyChecking=no /testdir/testfile3.txt ub5@{{ groups['server_group'][0] }}:/testdir/testfile3_{{ inventory_hostname }}.txt
+      delegate_to: "{{ inventory_hostname }}"
+      ignore_errors: yes
+
+    - name: Copy testfile2.txt from server back to client
+      shell: scp -o StrictHostKeyChecking=no ub5@192.168.0.213:/testdir/testfile2_{{ inventory_hostname }}.txt /testdir/from_server_testfile2.txt
+      delegate_to: "{{ inventory_hostname }}"
+      ignore_errors: yes
+
+- name: Собрать логи и остановить tcpdump
+  hosts: all
+  become: yes
+  tasks:
+    - name: Stop tcpdump
+      shell: pkill tcpdump || true
+
+    - name: Убедиться что лог есть
+      stat:
+        path: /tmp/traffic_capture.pcap
+      register: pcap_stat
+
+    - name: Скинуть в контрол план все
+      fetch:
+        src: /tmp/traffic_capture.pcap
+        dest: /tmp/logs/files_{{ inventory_hostname }}.pcap
+        flat: yes
+      when: pcap_stat.stat.exists

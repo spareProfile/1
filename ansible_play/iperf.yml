@@ -1,0 +1,59 @@
+- name: Установить tcpdump
+  hosts: all
+  become: yes
+  tasks:
+    - name: Установить iperf3 и tcpdump
+      apt:
+        name:
+          - iperf3
+          - tcpdump
+        state: present
+
+- name: Запустить iperf3 server
+  hosts: server_group
+  become: yes
+  tasks:
+    - name: Создать директорию для логов
+      file:
+        path: /tmp/logs
+        state: directory
+        mode: '0755'
+
+    - name: Запустить iperf3 сервер в фоновом режиме
+      shell: nohup iperf3 -s > /dev/null 2>&1 &
+      async: 0
+      poll: 0
+
+- name: Создать трафик и записать пакеты
+  hosts: client_group
+  become: yes
+  serial: 1
+  tasks:
+    - name: Generate traffic with iperf3
+      shell: iperf3 -c {{ hostvars[groups['server_group'][0]]['ansible_default_ipv4']['address'] }} -t 20
+
+    - name: Создать директорию для логов
+      file: 
+        path: /tmp/logs
+        state: directory
+        mode: '0755'
+        
+    - name: Собарть трафик
+      shell: tcpdump -i any -w /tmp/logs/traffic_dump_{{ inventory_hostname }}.pcap -G 20
+      async: 25
+      poll: 0
+      
+    - name: Подождать завершения
+      pause:
+        seconds: 10
+        
+    - name: Убить tcpdump
+      shell: pkill tcpdump || true
+      ignore_errors: yes
+        
+    - name: Перекинуть файлы
+      fetch:
+        src: /tmp/logs/traffic_dump_{{ inventory_hostname }}.pcap
+        dest: /tmp/logs/
+        flat: yes
+

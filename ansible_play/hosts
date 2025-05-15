@@ -1,0 +1,6 @@
+[server_group]
+192.168.0.213 ansible_user=ub5 ansible_ssh_pass=123 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+
+[client_group]
+192.168.0.103 ansible_user=ub4 ansible_ssh_pass=123 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+192.168.0.37 ansible_user=ub2 ansible_ssh_pass=123 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
